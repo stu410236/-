@@ -1,9 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Feather, Lightbulb, Check, X, ArrowRight, RotateCcw, Mail, LogOut, LogIn } from 'lucide-react';
+import { Feather, Lightbulb, Check, X, ArrowRight, RotateCcw, Mail } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { auth, db, loginWithGoogle, logout, handleFirestoreError, OperationType } from './lib/firebase';
-import { onAuthStateChanged, User } from 'firebase/auth';
-import { doc, getDoc, setDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
 
 // 花草紋路 SVG 元件 (植物藤蔓)
 const FloralCorner = ({ className }: { className?: string }) => (
@@ -138,8 +135,6 @@ const kleeOne = { fontFamily: "'Klee One', cursive" };
 const caveat = { fontFamily: "'Caveat', cursive" };
 
 export default function App() {
-  const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
   const [levels, setLevels] = useState<any[]>([]);
   const [currentLevelIndex, setCurrentLevelIndex] = useState(0);
   const [userInput, setUserInput] = useState("");
@@ -147,60 +142,6 @@ export default function App() {
   const [status, setStatus] = useState<"idle" | "correct" | "incorrect">("idle");
   
   const inputRef = useRef<HTMLInputElement>(null);
-
-  // 監聽登入狀態
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
-      setUser(currentUser);
-      if (currentUser) {
-        await syncUserProgress(currentUser);
-      }
-      setLoading(false);
-    });
-    return () => unsubscribe();
-  }, []);
-
-  // 同步使用者進度
-  const syncUserProgress = async (currentUser: User) => {
-    const userDocRef = doc(db, 'users', currentUser.uid);
-    try {
-      const userDoc = await getDoc(userDocRef);
-      if (userDoc.exists()) {
-        const data = userDoc.data();
-        if (data.lastLevelIndex !== undefined) {
-          setCurrentLevelIndex(data.lastLevelIndex);
-        }
-      } else {
-        // 初始化使用者資料
-        await setDoc(userDocRef, {
-          uid: currentUser.uid,
-          displayName: currentUser.displayName,
-          email: currentUser.email,
-          photoURL: currentUser.photoURL,
-          createdAt: serverTimestamp(),
-          lastLevelIndex: 0,
-          completed: false
-        });
-      }
-    } catch (error) {
-      handleFirestoreError(error, OperationType.GET, `users/${currentUser.uid}`);
-    }
-  };
-
-  // 儲存進度到 Firestore
-  const saveProgress = async (index: number) => {
-    if (!user) return;
-    const userDocRef = doc(db, 'users', user.uid);
-    try {
-      await updateDoc(userDocRef, {
-        lastLevelIndex: index,
-        completed: index >= levels.length && levels.length > 0,
-        updatedAt: serverTimestamp()
-      });
-    } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, `users/${user.uid}`);
-    }
-  };
 
   // 初始化關卡
   useEffect(() => {
@@ -240,12 +181,10 @@ export default function App() {
   };
 
   const goToNextLevel = () => {
-    const nextIndex = currentLevelIndex + 1;
-    setCurrentLevelIndex(nextIndex);
+    setCurrentLevelIndex(prev => prev + 1);
     setUserInput("");
     setShowHint(false);
     setStatus('idle');
-    saveProgress(nextIndex);
   };
 
   const restartGame = () => {
@@ -254,42 +193,7 @@ export default function App() {
     setUserInput("");
     setShowHint(false);
     setStatus('idle');
-    saveProgress(0);
   };
-
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: '#D8D3C8', color: '#5D564D' }}>
-        <p className="animate-pulse">載入中...</p>
-      </div>
-    );
-  }
-
-  // 登入畫面
-  if (!user) {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center p-4 selection:bg-[#8B9A91] selection:text-white" style={{ backgroundColor: '#D8D3C8', ...kleeOne, color: '#5D564D' }}>
-        <div className="max-w-md w-full bg-[#F5F2EB] shadow-[0_15px_40px_rgba(0,0,0,0.08)] p-12 text-center relative overflow-hidden">
-          <FloralCorner className="absolute top-0 left-0 w-32 h-32 text-[#8B9A91] opacity-50 -translate-x-4 -translate-y-4" />
-          <FloralCorner className="absolute bottom-0 right-0 w-32 h-32 text-[#B89D98] opacity-50 rotate-180 translate-x-4 translate-y-4" />
-          
-          <h1 className="text-5xl mb-6 relative z-10" style={zhiMangXing}>古典密碼學</h1>
-          <p className="text-[#6B635A] mb-10 leading-loose text-lg relative z-10">
-            解開連署在時光中的信件，<br />
-            請先證明你的身份。
-          </p>
-          
-          <button 
-            onClick={loginWithGoogle}
-            className="flex items-center justify-center w-full space-x-3 bg-[#8B9A91] hover:bg-[#7A8980] text-[#F5F2EB] py-3 px-6 rounded-sm transition-colors tracking-widest relative z-10"
-          >
-            <LogIn size={20} />
-            <span>使用 Google 登入</span>
-          </button>
-        </div>
-      </div>
-    );
-  }
 
   // 確保關卡載入完成前不渲染
   if (levels.length === 0) return null;
@@ -341,23 +245,9 @@ export default function App() {
     <div className="min-h-screen flex flex-col items-center justify-center p-4 overflow-hidden selection:bg-[#8B9A91] selection:text-white" style={{ backgroundColor: '#D8D3C8', ...kleeOne, color: '#5D564D' }}>
       
       {/* Header */}
-      <div className="mb-8 text-center z-10 flex flex-col items-center">
+      <div className="mb-8 text-center z-10">
         <h1 className="text-5xl mb-2 text-[#5D564D]" style={zhiMangXing}>古典密碼學</h1>
         <p className="text-[#8B9A91] text-lg tracking-widest">一封來自過去的信箋</p>
-        
-        {user && (
-          <div className="mt-4 flex items-center space-x-4">
-            <img src={user.photoURL || ''} alt="Avatar" className="w-8 h-8 rounded-full border border-[#D5CEC4]" />
-            <span className="text-sm text-[#5D564D]">{user.displayName}</span>
-            <button 
-              onClick={logout}
-              className="p-2 text-[#B89D98] hover:text-[#5D564D] transition-colors"
-              title="登出"
-            >
-              <LogOut size={18} />
-            </button>
-          </div>
-        )}
       </div>
 
       {/* Main Letter Card */}
