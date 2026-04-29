@@ -1,0 +1,63 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 預設拒絕所有存取
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 全域輔助函數
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // 驗證 User 實體
+    function isValidUser(data) {
+      return data.uid is string && 
+             data.uid == request.auth.uid &&
+             data.email is string && 
+             data.email.size() > 0 &&
+             data.displayName is string &&
+             data.displayName.size() <= 100 &&
+             data.lastLevelIndex is int &&
+             data.lastLevelIndex >= 0;
+    }
+
+    match /users/{userId} {
+      // 只有本人可以讀取自己的資料
+      allow get: if isOwner(userId);
+      
+      // 禁止列表查詢，防止大量掃描
+      allow list: if false;
+
+      // 建立帳號
+      allow create: if isOwner(userId) && 
+                      isValidUser(incoming()) && 
+                      incoming().createdAt == request.time;
+
+      // 更新進度
+      allow update: if isOwner(userId) && 
+                      isValidUser(incoming()) &&
+                      incoming().uid == existing().uid &&
+                      incoming().email == existing().email &&
+                      incoming().createdAt == existing().createdAt &&
+                      incoming().updatedAt == request.time &&
+                      incoming().diff(existing()).affectedKeys().hasOnly(['lastLevelIndex', 'completed', 'updatedAt']);
+
+      // 禁止刪除帳號（或依需求開放）
+      allow delete: if false;
+    }
+  }
+}
